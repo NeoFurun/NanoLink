@@ -64,6 +64,8 @@ timer_handle_t timer_create(uint32_t interval, uint8_t type,
 {
     struct timer *t;
 
+    if (type != TIMER_TYPE_ONCE && type != TIMER_TYPE_PERIODIC) return NULL;
+
     if (free_list == NULL) return NULL;
 
     t = free_list;
@@ -100,6 +102,12 @@ void timer_start(timer_handle_t handle)
     struct timer *t = (struct timer *)handle;
 
     if (t == NULL) return;
+
+    /* If already active, stop first to avoid creating a circular list
+     * (timer would appear in active_list twice). */
+    if (t->active) {
+        timer_stop(t);
+    }
 
     t->remaining = t->interval;
     t->active    = 1;
@@ -146,26 +154,58 @@ void timer_tick(uint32_t elapsed_ms)
             prev = t;
             t = t->next;
         } else {
-            struct timer *next = t->next;
+            struct timer *current = t;
+            struct timer *next   = t->next;
 
-            t->remaining = 0;
-            t->active    = 0;
+            current->remaining = 0;
+            current->active    = 0;
 
+            /* Remove current from active_list */
             if (prev == NULL) {
                 active_list = next;
             } else {
                 prev->next = next;
             }
 
-            if (t->callback != NULL) {
-                t->callback(t->arg);
+            /* Fire the callback */
+            if (current->callback != NULL) {
+                current->callback(current->arg);
             }
 
-            if (t->type == TIMER_TYPE_ONCE) {
-                t->next = free_list;
-                free_list = t;
+            /* Bug 4 fix: the callback may have re-armed this timer by calling
+             * timer_start(). If current->active is still 1, the timer is
+             * already back in active_list — do NOT return it to free_list or
+             * re-start it. Just advance to next. */
+            if (current->active) {
+                t = next;
+                continue;
+            }
+
+            /* Timer was not re-armed. Handle expiration normally. */
+            if (current->type == TIMER_TYPE_ONCE) {
+                current->next = free_list;
+                free_list = current;
             } else {
-                timer_start(t);
+                timer_start(current);
+            }
+
+            /* Bug 7 fix: the callback may have deleted the next timer via
+             * timer_delete(). Verify that `next` is still in active_list
+             * before dereferencing its fields in the next iteration. */
+            if (next != NULL) {
+                struct timer *scan = active_list;
+                int found = 0;
+                while (scan != NULL) {
+                    if (scan == next) {
+                        found = 1;
+                        break;
+                    }
+                    scan = scan->next;
+                }
+                if (!found) {
+                    /* next was deleted by the callback; stop iterating */
+                    break;
+                }
             }
 
             t = next;

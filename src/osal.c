@@ -8,7 +8,7 @@
 
 #include "../include/osal.h"
 #include <stdlib.h>    /* malloc, free */
-#include <sys/time.h>  /* gettimeofday */
+#include <time.h>      /* clock_gettime */
 
 void osal_init(void)
 {
@@ -27,9 +27,9 @@ void osal_free(void *ptr)
 
 uint32_t osal_get_time_ms(void)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
 osal_critical_t osal_critical_enter(void)

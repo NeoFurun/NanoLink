@@ -29,6 +29,7 @@
 /* -------------------------------------------------------------------------- */
 
 struct netif;
+struct driver_ops;
 
 /** 输入回调函数类型：接收包时调用，返回 0 表示成功消费，非 0 表示未处理 */
 typedef int (*netif_input_fn)(struct netif *ni, struct mbuf *m);
@@ -46,6 +47,7 @@ struct netif
     uint16_t flags;                   /**< 状态标志位 */
     uint32_t ip_addr;                 /**< 本接口 IPv4 地址（网络字节序） */
     uint32_t netmask;                 /**< 子网掩码（网络字节序） */
+    const struct driver_ops *ops;     /**< 驱动操作接口 */
     void *priv;                       /**< 驱动私有数据指针 */
 
     netif_send_fn send;   /**< 驱动实现的发送函数 */

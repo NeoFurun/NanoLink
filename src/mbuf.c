@@ -103,23 +103,29 @@ struct mbuf *mbuf_alloc(void)
  */
 void mbuf_free(struct mbuf *m)
 {
+    struct mbuf *cur, *next_node;
+
     if (m == NULL) return;
 
     m->ref_count--;
     if (m->ref_count > 0) return;
 
-    if (m->next != NULL) {
-        mbuf_free(m->next);
-        m->next = NULL;
-    }
+    /* Iteratively free the entire next chain to avoid stack overflow
+     * with deeply chained mbufs (up to 256 elements). */
+    cur = m;
+    while (cur != NULL) {
+        next_node = cur->next;
 
-    if (m->type == MBUF_TYPE_LARGE && m->storage.large.large_buf != NULL) {
-        osal_free(m->storage.large.large_buf);
-        m->storage.large.large_buf = NULL;
-    }
+        if (cur->type == MBUF_TYPE_LARGE && cur->storage.large.large_buf != NULL) {
+            osal_free(cur->storage.large.large_buf);
+            cur->storage.large.large_buf = NULL;
+        }
 
-    m->next = free_list;
-    free_list = m;
+        cur->next = free_list;
+        free_list = cur;
+
+        cur = next_node;
+    }
 }
 
 /* ==========================================================================
@@ -188,6 +194,7 @@ int mbuf_append(struct mbuf *m, uint16_t len)
 
     used = (uint16_t)(m->data - buf_start) + m->len;
 
+    if (used > capacity) return -1;  /* guard against unsigned underflow */
     if (capacity - used < len) return -1;
 
     m->len += len;
@@ -277,6 +284,7 @@ void mbuf_chain(struct mbuf *m1, struct mbuf *m2)
     struct mbuf *p;
 
     if (m1 == NULL || m2 == NULL) return;
+    if (m1 == m2) return;  /* avoid circular reference */
 
     p = m1;
     while (p->next != NULL) {
@@ -304,17 +312,15 @@ void mbuf_chain(struct mbuf *m1, struct mbuf *m2)
  */
 struct mbuf *mbuf_split(struct mbuf *m, uint16_t len)
 {
-    struct mbuf *p, *prev;
+    struct mbuf *p;
     uint16_t walked;
 
     if (m == NULL || len == 0) return NULL;
 
     walked = 0;
-    prev = NULL;
     p = m;
     while (p != NULL && walked + p->len < len) {
         walked += p->len;
-        prev = p;
         p = p->next;
     }
 
@@ -330,10 +336,22 @@ struct mbuf *mbuf_split(struct mbuf *m, uint16_t len)
         return rest;
     } else {
         uint16_t first_len = len - walked;
-        struct mbuf *new_m = mbuf_alloc();
+        uint16_t tail_len  = p->len - first_len;
+        struct mbuf *new_m;
+
+        /* If the remaining data won't fit in a SMALL mbuf (64 bytes usable
+         * after headroom), allocate a LARGE one to hold the tail. */
+        if (tail_len > MBUF_SMALL_BUF_SIZE - MBUF_RESERVE) {
+            new_m = mbuf_alloc_large(tail_len);
+        } else {
+            new_m = mbuf_alloc();
+        }
         if (new_m == NULL) return NULL;
 
-        mbuf_copy_from(new_m, p->data + first_len, p->len - first_len);
+        /* Must append before copy_from: a freshly allocated mbuf has len=0,
+         * and copy_from uses len to determine how much to write. */
+        mbuf_append(new_m, tail_len);
+        mbuf_copy_from(new_m, p->data + first_len, tail_len);
 
         p->len = first_len;
         new_m->next = p->next;

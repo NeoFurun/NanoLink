@@ -95,6 +95,12 @@ int arp_add_static(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr);
 void arp_remove(uint32_t ip_addr);
 
 /**
+ * @brief 按接口删除所有关联的 ARP 表项（网卡注销时调用）。
+ * @param ni 网络接口指针。
+ */
+void arp_remove_by_netif(struct netif *ni);
+
+/**
  * @brief 定期维护 ARP 表（超时重传、老化等），由定时器或主循环调用。
  */
 void arp_tick(void);

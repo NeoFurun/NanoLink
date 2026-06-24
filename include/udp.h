@@ -46,6 +46,7 @@ struct udp_pcb
 {
     uint32_t local_ip;         /**< 本地 IP（网络字节序） */
     uint16_t local_port;       /**< 本地端口（主机字节序） */
+    uint32_t remote_ip;        /**< 远端 IP（网络字节序，0 表示不限制） */
     uint16_t remote_port;      /**< 远端端口（主机字节序，0 表示不限制） */
     uint8_t flags;             /**< 状态标志 */
     udp_recv_fn recv_callback; /**< 数据接收回调函数 */

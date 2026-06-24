@@ -91,6 +91,8 @@ int netif_register(struct netif *ni)
         p->next = ni;
     }
 
+    ni->next = NULL; /* defense-in-depth */
+
     return 0;
 }
 
@@ -160,6 +162,18 @@ struct netif *netif_find_by_ip(uint32_t ip_addr)
 
     p = netif_list;
     while (p != NULL) {
+        /* 跳过未配置子网掩码的接口（netmask==0 会匹配所有 IP） */
+        if (p->netmask == 0) {
+            p = p->next;
+            continue;
+        }
+
+        /* 跳过未启用的接口 */
+        if (!(p->flags & NETIF_FLAG_UP)) {
+            p = p->next;
+            continue;
+        }
+
         /* 同一子网: (目标IP & 掩码) == (网卡IP & 掩码) */
         if ((ip_addr & p->netmask) == (p->ip_addr & p->netmask)) {
             return p;
