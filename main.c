@@ -11,20 +11,20 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
-#include "../include/tap.h"
-#include "../include/netif.h"
-#include "../include/mbuf.h"
-#include "../include/timer.h"
-#include "../include/arp.h"
-#include "../include/ip.h"
-#include "../include/icmp.h"
-#include "../include/udp.h"
-#include "../include/tcp.h"
-#include "../include/socket.h"
-#include "../include/route.h"
-#include "../include/event_bus.h"
-#include "../include/ll_dispatch.h"
-#include "../include/osal.h"
+#include "include/tap.h"
+#include "include/netif.h"
+#include "include/mbuf.h"
+#include "include/timer.h"
+#include "include/arp.h"
+#include "include/ip.h"
+#include "include/icmp.h"
+#include "include/udp.h"
+#include "include/tcp.h"
+#include "include/socket.h"
+#include "include/route.h"
+#include "include/event_bus.h"
+#include "include/ll_dispatch.h"
+#include "include/osal.h"
 
 static struct netif *g_netif = NULL;
 static volatile int running = 1;
