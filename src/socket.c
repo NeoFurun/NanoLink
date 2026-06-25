@@ -40,6 +40,10 @@ static void socket_recv_callback(struct udp_pcb *pcb, struct mbuf *m,
         return;
     }
 
+    /* 记录源地址，供 socket_recv 返回 */
+    sock->recv_src_ip   = src_ip;
+    sock->recv_src_port = src_port;
+
     /* 追加到接收队列 */
     if (sock->recv_queue == NULL) {
         sock->recv_queue = m;
@@ -291,8 +295,10 @@ int socket_recv(struct socket *sock, void *buf, uint16_t len,
     }
 
     if (addr != NULL) {
-        /* 简化：暂不记录源地址 */
-        memset(addr, 0, sizeof(*addr));
+        addr->sin_family = AF_INET;
+        addr->sin_port   = sock->recv_src_port;
+        addr->sin_addr   = sock->recv_src_ip;
+        memset(addr->sin_zero, 0, sizeof(addr->sin_zero));
     }
 
     return copied;

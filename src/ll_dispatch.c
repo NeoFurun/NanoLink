@@ -16,7 +16,9 @@
 
 #include "../include/ll_dispatch.h"
 #include "../include/driver.h"
+#include "../include/arp.h"
 #include <stddef.h>
+#include <string.h>
 
 /* 注册表条目 */
 struct ll_entry {
@@ -130,6 +132,13 @@ int ll_dispatch_input(struct netif *ni, struct mbuf *m)
     for (i = 0; i < LL_DISPATCH_MAX_PROTO; i++) {
         if (dispatch_table[i].handler != NULL &&
             dispatch_table[i].ether_type == ether_type) {
+
+            /* 从以太网帧头学习源 MAC：IP 包的 IP 在偏移 26~29 */
+            if (ether_type == ETHERTYPE_IPV4 && m->len >= 34) {
+                uint32_t src_ip;
+                memcpy(&src_ip, m->data + 26, 4);
+                arp_learn(ni, src_ip, m->data + 6);
+            }
 
             /* 剥掉以太网帧头，data 前移 14 字节 */
             if (mbuf_pull(m, ETH_HEADER_LEN) != 0) {

@@ -249,7 +249,6 @@ int ip_input(struct netif *ni, struct mbuf *m)
     /* 校验头部 */
     calc_cs = ip_checksum(iph, 0);
     if (calc_cs != 0xFFFF) {
-
         mbuf_free(m);
         return -1;
     }
@@ -278,7 +277,6 @@ int ip_input(struct netif *ni, struct mbuf *m)
     for (i = 0; i < IP_PROTO_MAX; i++) {
         if (ip_proto_table[i].handler != NULL &&
             ip_proto_table[i].proto == iph->proto) {
-
             mbuf_pull(m, hdr_len);
             return ip_proto_table[i].handler(ni, m, iph->src_addr,
                                              iph->dst_addr);
@@ -358,7 +356,6 @@ int ip_output(uint32_t dst_addr, uint8_t proto, struct mbuf *m)
     /* ARP 查 MAC → 已解析直接发，未解析 ARP 接管 m */
 
     if (arp_query(ni, next_hop, dst_mac, m) == 0) {
-
         if (eth_header_add(m, dst_mac, ni->hwaddr, ETHERTYPE_IPV4) != 0) {
             mbuf_free(m);
             return -1;

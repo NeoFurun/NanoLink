@@ -4,11 +4,6 @@
  *
  * 用法: sudo ./nanolink <接口名> <IP> [netmask]
  * 例:   sudo ./nanolink tap0 10.0.0.1 255.255.255.0
- *
- * 启动后:
- *   sudo ip link set tap0 up
- *   ping 10.0.0.1           # 测试 ICMP
- *   echo "hi" | nc -u ...   # 测试 UDP
  */
 
 #include <stdio.h>
@@ -16,7 +11,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
-#include <errno.h>
 #include "../include/tap.h"
 #include "../include/netif.h"
 #include "../include/mbuf.h"
@@ -35,13 +29,28 @@
 static struct netif *g_netif = NULL;
 static volatile int running = 1;
 
+/* TCP echo 回调：收到数据后原样回复 */
+static void tcp_echo_recv(struct tcp_pcb *pcb, struct mbuf *m)
+{
+    if (m != NULL) {
+        printf("[tcp-echo] recv %d bytes, echoing\n", m->total_len);
+        tcp_send(pcb, m);
+    } else {
+        printf("[tcp-echo] connection closed\n");
+    }
+}
+
+static void tcp_echo_accept(struct tcp_pcb *new_pcb)
+{
+    printf("[tcp-echo] new connection accepted\n");
+    tcp_set_recv_callback(new_pcb, tcp_echo_recv);
+}
+
 static void sig_handler(int sig) {
     (void)sig;
     running = 0;
 }
 
-/* 把 "10.0.0.1" 转成 uint32_t（网络字节序：
- *   10.0.0.1 → 内存中字节为 [0x0A, 0x00, 0x00, 0x01]） */
 static uint32_t parse_ip(const char *str)
 {
     uint32_t a, b, c, d;
@@ -49,7 +58,6 @@ static uint32_t parse_ip(const char *str)
     return (uint32_t)(a | (b << 8) | (c << 16) | (d << 24));
 }
 
-/* 把 "255.255.255.0" 转成 uint32_t（网络字节序） */
 static uint32_t parse_netmask(const char *str)
 {
     uint32_t a, b, c, d;
@@ -57,7 +65,6 @@ static uint32_t parse_netmask(const char *str)
     return (uint32_t)(a | (b << 8) | (c << 16) | (d << 24));
 }
 
-/* 主循环每秒驱动一次定时器和维护任务 */
 static void main_loop_tick(void)
 {
     static uint32_t last_tick = 0;
@@ -71,7 +78,6 @@ static void main_loop_tick(void)
         tcp_slow_tick();
     }
 
-    /* 快定时器 200ms */
     static uint32_t last_fast = 0;
     if (now - last_fast >= 200) {
         last_fast = now;
@@ -79,7 +85,7 @@ static void main_loop_tick(void)
     }
 }
 
-/* 从 TAP 读取数据并注入协议栈 */
+/* 从 TAP 读取数据并注入协议栈（非阻塞） */
 static void tap_poll(struct netif *ni)
 {
     int fd;
@@ -92,15 +98,8 @@ static void tap_poll(struct netif *ni)
 
     while (1) {
         n = read(fd, buf, sizeof(buf));
-        if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            perror("[tap] read error");
-            break;
-        }
-        if (n == 0) break;
+        if (n <= 0) break;
 
-
-        /* SMALL mbuf 只有 64 字节可用数据，超过的用 LARGE */
         if (n > 64) {
             m = mbuf_alloc_large((uint16_t)n);
             if (m != NULL && mbuf_append(m, (uint16_t)n) != 0) {
@@ -146,11 +145,10 @@ int main(int argc, char *argv[])
 
     printf("NanoLink starting on %s (%s/%s)...\n", ifname, ip_str, mask_str);
 
-    /* 初始化各模块 */
     osal_init();
     mbuf_init();
     timer_init();
-    netif_init(NULL, "", NULL, NULL); /* 仅触发链接 */
+    netif_init(NULL, "", NULL, NULL);
     socket_init();
     event_bus_init();
     route_init();
@@ -160,44 +158,78 @@ int main(int argc, char *argv[])
     udp_init();
     tcp_init();
 
-    /* 注册 TAP 网卡 */
     g_netif = driver_register(ifname, &tap_ops, NULL);
     if (g_netif == NULL) {
         fprintf(stderr, "Failed to register interface %s\n", ifname);
         return 1;
     }
 
-    /* 初始化驱动 */
     driver_init_all();
-
-    /* 配置 IP */
     ip_set_address(g_netif, ip_addr, netmask);
-
-    /* 添加直连路由 */
     route_add(ip_addr & netmask, netmask, 0, g_netif);
 
-    /* 设置默认路由 (网关 = 网段第一个地址或 .1) */
     {
-        uint32_t gw = (ip_addr & netmask) | 0x01000000; /* 假设网关是 .1 */
+        uint32_t gw = (ip_addr & netmask) | 0x01000000;
         route_set_default(gw, g_netif);
     }
 
-    /* 设置 ll_dispatch 为 netif 的 input 回调 */
     g_netif->input = ll_dispatch_input;
+
+    /* 添加内核侧 ARP 条目（避免 TCP 握手时 ARP 延迟） */
+    {
+        /* 10.0.0.2 在内核侧，TAP 设备默认 MAC 通常是随机的，
+         * 用 ioctl SIOCGIFHWADDR 获取或手动指定。
+         * 简化：从 tap0 的邻居表读，或用伪 MAC。
+         * 这里先留空让 ARP 自动解析。
+         */
+    }
 
     printf("Interface %s ready. IP=%s, Mask=%s\n",
            g_netif->name, ip_str, mask_str);
     printf("Run: sudo ip link set %s up && sudo ip addr add %s/24 dev %s\n",
            ifname, ip_str, ifname);
 
+    /* TCP echo 测试：监听 9999 端口 */
+    struct tcp_pcb *tcp_listen_pcb = tcp_new();
+    if (tcp_listen_pcb != NULL) {
+        tcp_bind(tcp_listen_pcb, ip_addr, 9999);     /* 绑定到实际 IP */
+        tcp_listen(tcp_listen_pcb, 5);               /* backlog 5 */
+        tcp_set_accept_callback(tcp_listen_pcb, tcp_echo_accept);
+        printf("TCP echo server listening on port 9999\n");
+    }
+
+    /* UDP echo 测试：监听 8888 端口 */
+    struct socket *echo_sock = socket_create(SOCK_DGRAM);
+    struct sockaddr_in bind_addr;
+    char echo_buf[1024];
+
+    if (echo_sock != NULL) {
+        memset(&bind_addr, 0, sizeof(bind_addr));
+        bind_addr.sin_family = AF_INET;
+        bind_addr.sin_port   = 8888;
+        bind_addr.sin_addr   = 0;
+        socket_bind(echo_sock, &bind_addr);
+        printf("UDP echo server listening on port 8888\n");
+    }
+
     /* 主循环 */
     while (running) {
         tap_poll(g_netif);
         main_loop_tick();
-        usleep(10000); /* 10ms，降低 CPU 占用 */
+
+        if (echo_sock != NULL) {
+            struct sockaddr_in remote_addr;
+            int n = socket_recv(echo_sock, echo_buf, sizeof(echo_buf), &remote_addr);
+            if (n > 0) {
+                printf("[udp-echo] recv %d bytes, echoing back\n", n);
+                socket_send(echo_sock, echo_buf, (uint16_t)n, &remote_addr);
+            }
+        }
+        usleep(5000); /* 5ms */
     }
 
     printf("\nShutting down...\n");
+    if (echo_sock) socket_close(echo_sock);
     driver_unregister(g_netif);
     printf("Goodbye.\n");
 

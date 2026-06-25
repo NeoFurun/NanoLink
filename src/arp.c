@@ -276,6 +276,38 @@ int arp_add_static(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr)
 }
 
 /* ==========================================================================
+   arp_learn — 从接收包中学习 IP→MAC（RESOLVED，可被老化）
+   ========================================================================== */
+void arp_learn(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr)
+{
+    int i;
+    int free_slot = -1;
+
+    if (ni == NULL || mac_addr == NULL) return;
+
+    /* 先找是否已有同 IP 条目，有则更新 MAC */
+    for (i = 0; i < ARP_TABLE_SIZE; i++) {
+        if (arp_table[i].state != ARP_STATE_FREE &&
+            arp_table[i].ip_addr == ip_addr) {
+            memcpy(arp_table[i].mac_addr, mac_addr, 6);
+            return;
+        }
+        if (free_slot == -1 && arp_table[i].state == ARP_STATE_FREE)
+            free_slot = i;
+    }
+
+    if (free_slot == -1) return; /* 表满 */
+
+    arp_table[free_slot].ip_addr       = ip_addr;
+    arp_table[free_slot].state         = ARP_STATE_RESOLVED;
+    arp_table[free_slot].retry_count   = 0;
+    arp_table[free_slot].netif         = ni;
+    arp_table[free_slot].pending_queue = NULL;
+    arp_table[free_slot].pending_count = 0;
+    memcpy(arp_table[free_slot].mac_addr, mac_addr, 6);
+}
+
+/* ==========================================================================
    arp_remove — 删除 ARP 表项
    ========================================================================== */
 /**

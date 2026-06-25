@@ -110,6 +110,8 @@ struct socket
 
     /* 接收缓冲区（应用层未读取的数据） */
     struct mbuf *recv_queue;
+    uint32_t recv_src_ip;   /**< 最近收到的源 IP */
+    uint16_t recv_src_port; /**< 最近收到的源端口 */
 
     /* 等待 accept 的连接队列（仅 listen socket） */
     struct socket *accept_queue_head;

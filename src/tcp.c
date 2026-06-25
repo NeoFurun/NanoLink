@@ -38,19 +38,26 @@ static uint16_t tcp_checksum(struct tcp_header *tcp, uint16_t tcp_len,
                               uint32_t src_ip, uint32_t dst_ip)
 {
     uint32_t sum = 0;
-    uint16_t *p = (uint16_t *)tcp;
+    uint8_t *sip = (uint8_t *)&src_ip;
+    uint8_t *dip = (uint8_t *)&dst_ip;
+    uint8_t *b   = (uint8_t *)tcp;
     int i;
 
-    /* 伪头部 */
-    sum += (uint16_t)(src_ip >> 16);
-    sum += (uint16_t)(src_ip & 0xFFFF);
-    sum += (uint16_t)(dst_ip >> 16);
-    sum += (uint16_t)(dst_ip & 0xFFFF);
-    sum += swap16(IP_PROTO_TCP);
-    sum += swap16(tcp_len);
+    /* 伪头部 — 网络字节序 */
+    sum += ((uint16_t)sip[0] << 8) | sip[1];
+    sum += ((uint16_t)sip[2] << 8) | sip[3];
+    sum += ((uint16_t)dip[0] << 8) | dip[1];
+    sum += ((uint16_t)dip[2] << 8) | dip[3];
+    sum += ((uint16_t)0 << 8) | IP_PROTO_TCP;
+    sum += ((uint16_t)(tcp_len >> 8) << 8) | (tcp_len & 0xFF);
 
-    for (i = 0; i < tcp_len / 2; i++) sum += p[i];
-    if (tcp_len & 1) sum += ((uint8_t *)tcp)[tcp_len - 1] << 8;
+    /* TCP 段 — 按网络字节序逐字节读取 */
+    for (i = 0; i < tcp_len - 1; i += 2) {
+        sum += ((uint16_t)b[i] << 8) | b[i + 1];
+    }
+    if (tcp_len & 1) {
+        sum += (uint16_t)b[tcp_len - 1] << 8;
+    }
 
     while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
     return (uint16_t)(~sum);
@@ -100,7 +107,10 @@ static int tcp_send_segment(struct tcp_pcb *pcb, uint8_t flags,
     }
 
     /* 在连续内存上计算校验和 */
-    tcp->checksum = tcp_checksum(tcp, tcp_len, pcb->local_ip, pcb->remote_ip);
+    {
+        uint16_t cs = tcp_checksum(tcp, tcp_len, pcb->local_ip, pcb->remote_ip);
+        tcp->checksum = swap16(cs);
+    }
 
     /* 拷贝到 mbuf 并发送 */
     m = mbuf_alloc();
@@ -252,6 +262,12 @@ static struct tcp_pcb *tcp_new_connection(struct tcp_pcb *listen_pcb,
     pcb->rto         = 1000;
     pcb->retransmit_timer = timer_create(pcb->rto, TIMER_TYPE_ONCE,
                                           tcp_retransmit_callback, pcb);
+
+    /* 继承 listen PCB 的回调 */
+    pcb->recv_callback   = listen_pcb->recv_callback;
+    pcb->accept_callback = listen_pcb->accept_callback;
+    pcb->sent_callback   = listen_pcb->sent_callback;
+    pcb->err_callback    = listen_pcb->err_callback;
 
     /* 加入活跃链表 */
     pcb->next = tcp_active_list;
@@ -461,7 +477,9 @@ int tcp_input(struct netif *ni, struct mbuf *m, uint32_t src_ip, uint32_t dst_ip
     int i;
 
     if (ni == NULL || m == NULL) return -1;
-    if (m->len < TCP_HEADER_LEN_MIN) { mbuf_free(m); return -1; }
+    if (m->len < TCP_HEADER_LEN_MIN) {
+        mbuf_free(m); return -1;
+    }
 
     tcp = (struct tcp_header *)m->data;
     hdr_len  = (swap16(tcp->hdrlen_flags) >> 12) & 0xF;
@@ -502,7 +520,6 @@ int tcp_input(struct netif *ni, struct mbuf *m, uint32_t src_ip, uint32_t dst_ip
             break;
         }
     }
-
     if (pcb == NULL && (flags & TCP_FLAG_SYN)) {
         /* 查找 LISTEN PCB */
         struct tcp_pcb *listen_pcb = NULL;
@@ -550,7 +567,10 @@ int tcp_input(struct netif *ni, struct mbuf *m, uint32_t src_ip, uint32_t dst_ip
                 rst_hdr->hdrlen_flags = swap16((TCP_HEADER_LEN_MIN / 4) << 12 | rst_flags);
                 rst_hdr->window   = 0;
                 rst_hdr->checksum = 0;
-                rst_hdr->checksum = tcp_checksum(rst_hdr, TCP_HEADER_LEN_MIN, dst_ip, src_ip);
+                {
+                    uint16_t cs = tcp_checksum(rst_hdr, TCP_HEADER_LEN_MIN, dst_ip, src_ip);
+                    rst_hdr->checksum = swap16(cs);
+                }
 
                 struct mbuf *rst_m = mbuf_alloc();
                 if (rst_m != NULL) {
@@ -605,7 +625,9 @@ int tcp_input(struct netif *ni, struct mbuf *m, uint32_t src_ip, uint32_t dst_ip
             pcb->next = tcp_accept_queue;
             tcp_accept_queue = pcb;
 
-            if (pcb->accept_callback) pcb->accept_callback(pcb);
+            if (pcb->accept_callback) {
+                pcb->accept_callback(pcb);
+            }
             tcp_output(pcb); /* flush 排队数据 */
         }
         mbuf_free(m);

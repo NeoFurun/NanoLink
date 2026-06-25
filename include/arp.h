@@ -95,6 +95,14 @@ int arp_add_static(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr);
 void arp_remove(uint32_t ip_addr);
 
 /**
+ * @brief 从接收到的包中学习 IP→MAC 映射（非静态，可老化）。
+ * @param ni       收到包的接口。
+ * @param ip_addr  源 IPv4 地址。
+ * @param mac_addr  源 MAC 地址。
+ */
+void arp_learn(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr);
+
+/**
  * @brief 按接口删除所有关联的 ARP 表项（网卡注销时调用）。
  * @param ni 网络接口指针。
  */

@@ -21,7 +21,7 @@ static int tap_init(struct netif *ni)
 
     if (ni == NULL) return -1;
 
-    fd = open("/dev/net/tun", O_RDWR);
+    fd = open("/dev/net/tun", O_RDWR | O_NONBLOCK);
     if (fd < 0) return -1;
 
     memset(&ifr, 0, sizeof(ifr));
