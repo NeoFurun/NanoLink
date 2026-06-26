@@ -1,11 +1,3 @@
-/**
- * @file    main.c
- * @brief   NanoLink 协议栈入口
- *
- * 用法: sudo ./nanolink <接口名> <IP> [netmask]
- * 例:   sudo ./nanolink tap0 10.0.0.1 255.255.255.0
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,7 +19,7 @@
 #include "include/osal.h"
 
 static struct netif *g_netif = NULL;
-static volatile int running = 1;
+static volatile int running = 1; //进程是否终止的标识
 
 /* TCP echo 回调：收到数据后原样回复 */
 static void tcp_echo_recv(struct tcp_pcb *pcb, struct mbuf *m)
@@ -51,6 +43,7 @@ static void sig_handler(int sig) {
     running = 0;
 }
 
+/*将10.0.0.1 转化成大端存储:0x0100000A*/
 static uint32_t parse_ip(const char *str)
 {
     uint32_t a, b, c, d;
@@ -58,6 +51,7 @@ static uint32_t parse_ip(const char *str)
     return (uint32_t)(a | (b << 8) | (c << 16) | (d << 24));
 }
 
+/*将255.255.255.0 转化成大端存储:0x00FFFFFF*/
 static uint32_t parse_netmask(const char *str)
 {
     uint32_t a, b, c, d;
@@ -123,36 +117,38 @@ static void tap_poll(struct netif *ni)
 
 int main(int argc, char *argv[])
 {
-    const char *ifname = "tap0";
-    const char *ip_str = "10.0.0.1";
-    const char *mask_str = "255.255.255.0";
+    const char *ifname = "tap0"; //虚拟网卡
+    const char *ip_str = "10.0.0.1"; //程序自己的IP地址
+    const char *mask_str = "255.255.255.0"; //子网掩码
     uint32_t ip_addr, netmask;
 
-    if (argc >= 2) ifname   = argv[1];
-    if (argc >= 3) ip_str   = argv[2];
-    if (argc >= 4) mask_str = argv[3];
+    if (argc >= 2) ifname   = argv[1]; //设置虚拟网卡
+    if (argc >= 3) ip_str   = argv[2]; //设置程序IP地址
+    if (argc >= 4) mask_str = argv[3]; //设置子网掩码
 
-    ip_addr = parse_ip(ip_str);
-    netmask = parse_netmask(mask_str);
+    ip_addr = parse_ip(ip_str);//将ip地址转化成网络字节序(大端)
+    netmask = parse_netmask(mask_str);//将子网掩码转化成网络字节序(大端)
 
+    //转化失败
     if (ip_addr == 0) {
         fprintf(stderr, "Invalid IP: %s\n", ip_str);
         return 1;
     }
 
+    //为终止信号 定义新行为
     signal(SIGINT,  sig_handler);
     signal(SIGTERM, sig_handler);
 
     printf("NanoLink starting on %s (%s/%s)...\n", ifname, ip_str, mask_str);
 
-    osal_init();
-    mbuf_init();
-    timer_init();
+    osal_init();//为多平台做准备(暂未实现)
+    mbuf_init();//初始化数据缓冲区内存池
+    timer_init();//初始化定时器内存池
     netif_init(NULL, "", NULL, NULL);
-    socket_init();
-    event_bus_init();
-    route_init();
-    arp_init();
+    socket_init();//初始化socket内存池
+    event_bus_init();//初始化事件监听表
+    route_init();//初始化路由表
+    arp_init();//初始化ARP表
     ip_init();
     icmp_init();
     udp_init();
