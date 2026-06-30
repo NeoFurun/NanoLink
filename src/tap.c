@@ -10,9 +10,7 @@
 /* 每个 TAP 接口一个 fd，存 ni->priv */
 static int tap_fds[DRIVER_MAX_COUNT];
 
-/* ==========================================================================
-   tap_init — 打开 /dev/net/tun，创建虚拟以太网卡
-   ========================================================================== */
+//打开 TAP 设备，设置 MTU 和 MAC 地址，保存 fd 到 tap_fds 数组
 static int tap_init(struct netif *ni)
 {
     struct ifreq ifr;
@@ -29,6 +27,7 @@ static int tap_init(struct netif *ni)
     strncpy(ifr.ifr_name, ni->name, IFNAMSIZ - 1);
     ifr.ifr_name[IFNAMSIZ - 1] = '\0';
 
+    // ioctl 设置 TAP 设备
     if (ioctl(fd, TUNSETIFF, &ifr) < 0) {
         close(fd);
         return -1;
@@ -62,9 +61,7 @@ static int tap_init(struct netif *ni)
     return 0;
 }
 
-/* ==========================================================================
-   tap_send — 把以太网帧写入 TAP 设备
-   ========================================================================== */
+// 发送数据包到 TAP 设备
 static int tap_send(struct netif *ni, struct mbuf *m)
 {
     uint8_t buf[ETH_MTU + ETH_HEADER_LEN + 64]; /* 够装一个完整帧 */
@@ -78,7 +75,7 @@ static int tap_send(struct netif *ni, struct mbuf *m)
 
     total = m->total_len;
     if (total > sizeof(buf)) return -1;
-
+    
     {
         uint16_t copied = mbuf_copy_to(m, buf, total);
         if (copied != total) return -1;
@@ -91,9 +88,7 @@ static int tap_send(struct netif *ni, struct mbuf *m)
     return 0;
 }
 
-/* ==========================================================================
-   tap_close — 关闭 TAP 设备
-   ========================================================================== */
+// 关闭 TAP 设备，释放 fd 槽位
 static void tap_close(struct netif *ni)
 {
     int fd;
@@ -115,13 +110,11 @@ static void tap_close(struct netif *ni)
     close(fd);
 }
 
-/* ==========================================================================
-   tap_ops — 供 driver_register 使用的驱动操作接口
-   ========================================================================== */
+// TAP 驱动操作接口
 const struct driver_ops tap_ops = {
     .init       = tap_init,
     .send       = tap_send,
     .close      = tap_close,
-    .set_mac    = NULL,  /* 暂不支持 MAC 修改 */
+    .set_mac    = NULL,
     .get_status = NULL,
 };

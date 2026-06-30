@@ -1,14 +1,3 @@
-/**
- * @file    tcp.c
- * @brief   TCP 传输控制协议模块实现
- *
- * 面向连接的可靠字节流传输，核心功能:
- *   - 三次握手 (SYN → SYN-ACK → ACK)
- *   - 数据收发 (序号 + 确认 + 重传)
- *   - 四次挥手 (FIN → ACK ... FIN → ACK)
- *   - 状态机 (CLOSED/LISTEN/SYN_SENT/.../TIME_WAIT)
- */
-
 #include "../include/tcp.h"
 #include "../include/ip.h"
 #include "../include/timer.h"
@@ -18,7 +7,7 @@
 /* PCB 池 */
 static struct tcp_pcb tcp_pcb_pool[TCP_MAX_PCB];
 static struct tcp_pcb *tcp_free_list = NULL;
-static struct tcp_pcb *tcp_active_list = NULL; /* 所有在用 PCB */
+static struct tcp_pcb *tcp_active_list = NULL;
 
 /* accept 等待队列 (已完成的连接等待 accept) */
 static struct tcp_pcb *tcp_accept_queue = NULL;
@@ -31,7 +20,6 @@ static inline uint32_t swap32(uint32_t n) {
 
 static uint32_t tcp_initial_seq = 0;
 
-/* ---------- 内部辅助函数 ---------- */
 
 /* TCP 校验和 (伪头部 + TCP段) */
 static uint16_t tcp_checksum(struct tcp_header *tcp, uint16_t tcp_len,
@@ -276,17 +264,7 @@ static struct tcp_pcb *tcp_new_connection(struct tcp_pcb *listen_pcb,
     return pcb;
 }
 
-/* ==========================================================================
-   tcp_init — 初始化 TCP 模块
-   ========================================================================== */
-/**
- * 初始化 PCB 池，向 IP 注册 tcp_input。
- *
- * 例（协议栈启动）:
- *   tcp_init();
- *   // PCB 池: 16 个空闲
- *   // IP 层: proto=6 → tcp_input
- */
+
 void tcp_init(void)
 {
     int i;
@@ -298,9 +276,6 @@ void tcp_init(void)
     ip_register_proto(IP_PROTO_TCP, tcp_input);
 }
 
-/* ==========================================================================
-   tcp_new — 创建 TCP 控制块
-   ========================================================================== */
 struct tcp_pcb *tcp_new(void)
 {
     struct tcp_pcb *pcb;
@@ -326,9 +301,6 @@ struct tcp_pcb *tcp_new(void)
     return pcb;
 }
 
-/* ==========================================================================
-   tcp_bind — 绑定本地端口
-   ========================================================================== */
 int tcp_bind(struct tcp_pcb *pcb, uint32_t local_ip, uint16_t port)
 {
     struct tcp_pcb *p;
@@ -350,9 +322,6 @@ int tcp_bind(struct tcp_pcb *pcb, uint32_t local_ip, uint16_t port)
     return 0;
 }
 
-/* ==========================================================================
-   tcp_listen — 进入 LISTEN 状态
-   ========================================================================== */
 void tcp_listen(struct tcp_pcb *pcb, uint8_t backlog)
 {
     if (pcb == NULL) return;
@@ -361,9 +330,6 @@ void tcp_listen(struct tcp_pcb *pcb, uint8_t backlog)
     (void)backlog;
 }
 
-/* ==========================================================================
-   tcp_connect — 主动发 SYN
-   ========================================================================== */
 int tcp_connect(struct tcp_pcb *pcb, uint32_t remote_ip, uint16_t remote_port)
 {
     if (pcb == NULL) return -1;
@@ -381,9 +347,6 @@ int tcp_connect(struct tcp_pcb *pcb, uint32_t remote_ip, uint16_t remote_port)
     return 0;
 }
 
-/* ==========================================================================
-   tcp_accept — 从 accept 队列取一个已完成的连接
-   ========================================================================== */
 struct tcp_pcb *tcp_accept(struct tcp_pcb *listen_pcb)
 {
     struct tcp_pcb *pcb;
@@ -398,9 +361,6 @@ struct tcp_pcb *tcp_accept(struct tcp_pcb *listen_pcb)
     return pcb;
 }
 
-/* ==========================================================================
-   tcp_send — 发送数据
-   ========================================================================== */
 int tcp_send(struct tcp_pcb *pcb, struct mbuf *m)
 {
     if (pcb == NULL || m == NULL) return -1;
@@ -424,9 +384,6 @@ int tcp_send(struct tcp_pcb *pcb, struct mbuf *m)
     return tcp_output(pcb);
 }
 
-/* ==========================================================================
-   tcp_close — 主动关闭 (发 FIN)
-   ========================================================================== */
 void tcp_close(struct tcp_pcb *pcb)
 {
     if (pcb == NULL) return;
@@ -444,9 +401,6 @@ void tcp_close(struct tcp_pcb *pcb)
     }
 }
 
-/* ==========================================================================
-   tcp_abort — 发 RST 强制关闭
-   ========================================================================== */
 void tcp_abort(struct tcp_pcb *pcb)
 {
     if (pcb == NULL) return;
@@ -455,17 +409,11 @@ void tcp_abort(struct tcp_pcb *pcb)
     tcp_pcb_free(pcb);
 }
 
-/* ==========================================================================
-   回调设置函数
-   ========================================================================== */
 void tcp_set_recv_callback(struct tcp_pcb *pcb, tcp_recv_fn cb)   { if (pcb) pcb->recv_callback = cb; }
 void tcp_set_accept_callback(struct tcp_pcb *pcb, tcp_accept_fn cb){ if (pcb) pcb->accept_callback = cb; }
 void tcp_set_sent_callback(struct tcp_pcb *pcb, tcp_sent_fn cb)    { if (pcb) pcb->sent_callback = cb; }
 void tcp_set_err_callback(struct tcp_pcb *pcb, tcp_err_fn cb)      { if (pcb) pcb->err_callback = cb; }
 
-/* ==========================================================================
-   tcp_input — TCP 段输入处理 (核心状态机)
-   ========================================================================== */
 int tcp_input(struct netif *ni, struct mbuf *m, uint32_t src_ip, uint32_t dst_ip)
 {
     struct tcp_header *tcp;
@@ -583,10 +531,6 @@ int tcp_input(struct netif *ni, struct mbuf *m, uint32_t src_ip, uint32_t dst_ip
         mbuf_free(m);
         return -1;
     }
-
-    /* ================================================================
-       状态机处理
-       ================================================================ */
 
     switch (pcb->state) {
 
@@ -788,9 +732,6 @@ int tcp_input(struct netif *ni, struct mbuf *m, uint32_t src_ip, uint32_t dst_ip
     return 0;
 }
 
-/* ==========================================================================
-   tcp_slow_tick — 慢定时器 (1 秒)
-   ========================================================================== */
 void tcp_slow_tick(void)
 {
     int i;
@@ -801,9 +742,6 @@ void tcp_slow_tick(void)
     }
 }
 
-/* ==========================================================================
-   tcp_fast_tick — 快定时器 (200ms)
-   ========================================================================== */
 void tcp_fast_tick(void)
 {
     /* 延迟 ACK 等 (简化: 不做) */

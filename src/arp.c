@@ -1,22 +1,3 @@
-/**
- * @file    arp.c
- * @brief   ARP 地址解析协议模块实现
- *
- * 把 IPv4 地址翻译成 MAC 地址。每个表项有四种状态：
- *   FREE     → 空位，可用
- *   PENDING  → 已发请求，等待回复（期间包挂起）
- *   RESOLVED → 已拿到 MAC，直接可用
- *   STATIC   → 手工配置，永不过期
- *
- * 核心流程:
- *   发送: IP 层调 arp_query
- *     → 有 MAC 就返回
- *     → 没 MAC 就发 ARP 请求，把包挂进 pending_queue
- *   接收: ll_dispatch 调 arp_input
- *     → ARP 请求 → 回复（顺便学对方的 IP→MAC）
- *     → ARP 回复 → 更新表项，flush pending_queue
- */
-
 #include "../include/arp.h"
 #include "../include/ll_dispatch.h"
 #include "../include/driver.h"
@@ -47,17 +28,7 @@ static inline uint16_t swap16(uint16_t n) {
     return (uint16_t)((n >> 8) | (n << 8));
 }
 
-/* ==========================================================================
-   arp_init — 初始化 ARP 模块
-   ========================================================================== */
-/**
- * 清空 ARP 缓存表，并向链路层分发器注册 arp_input。
- *
- * 例（协议栈启动时调用）:
- *   arp_init();
- *   // arp_table[32] 全部 FREE
- *   // ll_dispatch: ether_type 0x0806 → arp_input (已有 ip_input 注册 0x0800)
- */
+// 初始化 ARP 模块
 void arp_init(void)
 {
     memset(arp_table, 0, sizeof(arp_table));
@@ -66,29 +37,7 @@ void arp_init(void)
     ll_dispatch_register(ETHERTYPE_ARP, arp_input);
 }
 
-/* ==========================================================================
-   arp_input — 处理收到的 ARP 包
-   ========================================================================== */
-/**
- * 两分支：收到请求 → 回复；收到回复 → 更新表项并 flush 挂起队列。
- * 直接在原 mbuf 上改动，零拷贝。
- *
- * 例（收到 ARP 请求——别人 ping 我们）:
- *   对方广播 "谁是 10.0.0.1？"
- *   arp = (struct arp_packet *)m->data:
- *     opcode=1(REQUEST), target_ip=10.0.0.1, sender_ip=10.0.0.2, sender_mac=AA:BB:...
- *
- *   arp_input 检查 target_ip == ni->ip_addr → 是问我的
- *     → 原 mbuf 上改: opcode=2(REPLY), sender↔target 交换
- *     → 加回以太网帧头，发回去
- *     → 顺手把 10.0.0.2→AA:BB:... 记进缓存
- *
- * 例（收到 ARP 回复——我们之前的询问被回答了）:
- *   对方回复 "10.0.0.2 的 MAC 是 AA:BB:CC:DD:EE:FF"
- *     → 找到 ip=10.0.0.2 的 PENDING 表项
- *     → 填入 MAC，改为 RESOLVED
- *     → 逐个取出 pending_queue 里的包，加 MAC 头，发出去
- */
+// 处理收到的 ARP 包
 int arp_input(struct netif *ni, struct mbuf *m)
 {
     struct arp_packet *arp;
@@ -114,9 +63,6 @@ int arp_input(struct netif *ni, struct mbuf *m)
     }
 
     if (arp->opcode == swap16(ARP_REQUEST)) {
-        /* ================================================================
-           ARP 请求：别人问"谁是 X.X.X.X？"
-           ================================================================ */
 
         uint32_t target_ip, orig_sender_ip;
         uint8_t orig_sender_mac[6];
@@ -168,10 +114,6 @@ int arp_input(struct netif *ni, struct mbuf *m)
     }
 
     if (arp->opcode == swap16(ARP_REPLY)) {
-        /* ================================================================
-           ARP 回复：有人回答我们的询问
-           ================================================================ */
-
         uint32_t sender_ip;
         memcpy(&sender_ip, arp->sender_ip, 4);
 
@@ -221,18 +163,7 @@ int arp_input(struct netif *ni, struct mbuf *m)
     return -1;
 }
 
-/* ==========================================================================
-   arp_add_static — 添加静态 ARP 表项
-   ========================================================================== */
-/**
- * 手工写入 IP→MAC 映射，不收发自学习。STATIC 永不过期。
- *
- * 例（写入网关 MAC，省掉每次查询）:
- *   uint8_t gw_mac[6] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
- *   arp_add_static(&eth0, inet_addr("10.0.0.1"), gw_mac);
- *   // arp_table 多一条 STATIC: 10.0.0.1 → 00:11:22:33:44:55
- *   之后发给 10.0.0.1 走 arp_query 直接命中，不广播 ARP 请求。
- */
+// 添加静态 ARP 表项
 int arp_add_static(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr)
 {
     int i;
@@ -274,10 +205,7 @@ int arp_add_static(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr)
 
     return -1; /* 表满 */
 }
-
-/* ==========================================================================
-   arp_learn — 从接收包中学习 IP→MAC（RESOLVED，可被老化）
-   ========================================================================== */
+// 学习到一个 IP→MAC 映射（用于收到 ARP 回复或请求时更新表项）
 void arp_learn(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr)
 {
     int i;
@@ -306,17 +234,7 @@ void arp_learn(struct netif *ni, uint32_t ip_addr, const uint8_t *mac_addr)
     arp_table[free_slot].pending_count = 0;
     memcpy(arp_table[free_slot].mac_addr, mac_addr, 6);
 }
-
-/* ==========================================================================
-   arp_remove — 删除 ARP 表项
-   ========================================================================== */
-/**
- * 按 IP 删除一条缓存，同时释放挂起队列里的所有包。
- *
- * 例（网卡 down 时清理相关表项）:
- *   arp_remove(inet_addr("10.0.0.2"));
- *   // 该 IP 的表项清零变 FREE，pending_queue 上挂的包全释放
- */
+// 删除指定 IP 的 ARP 表项（释放挂起队列）
 void arp_remove(uint32_t ip_addr)
 {
     int i;
@@ -337,17 +255,7 @@ void arp_remove(uint32_t ip_addr)
         }
     }
 }
-
-/* ==========================================================================
-   arp_remove_by_netif — 按接口删除所有相关 ARP 表项
-   ========================================================================== */
-/**
- * 网卡注销时调用，清理与该接口关联的全部表项（含挂起包）。
- *
- * 例（driver_unregister 内部）:
- *   arp_remove_by_netif(&eth0);
- *   // eth0 上的所有 PENDING/RESOLVED/STATIC 表项全部清零
- */
+// 删除指定网络接口的所有 ARP 表项（释放挂起队列）
 void arp_remove_by_netif(struct netif *ni)
 {
     int i;
@@ -370,9 +278,6 @@ void arp_remove_by_netif(struct netif *ni)
     }
 }
 
-/* ==========================================================================
-   arp_send_request — 广播一个 ARP 请求（内部辅助函数）
-   ========================================================================== */
 static int arp_send_request(struct netif *ni, uint32_t target_ip)
 {
     struct arp_packet *arp;
@@ -409,9 +314,6 @@ static int arp_send_request(struct netif *ni, uint32_t target_ip)
     return ni->send(ni, m);
 }
 
-/* ==========================================================================
-   arp_pending_enqueue — 把 mbuf 追加到挂起队列尾部（内部辅助函数）
-   ========================================================================== */
 static void arp_pending_enqueue(struct arp_entry *entry, struct mbuf *m)
 {
     struct mbuf *q;
@@ -429,19 +331,7 @@ static void arp_pending_enqueue(struct arp_entry *entry, struct mbuf *m)
     entry->pending_count++;
 }
 
-/* ==========================================================================
-   arp_tick — 定期维护 ARP 表
-   ========================================================================== */
-/**
- * 主循环每秒调一次。PENDING 表项重试 or 超时放弃。RESOLVED 暂不做老化。
- *
- * 例（arp_tick 被循环中的 1 秒定时器驱动）:
- *   第 1 秒: retry=1 → 重发 ARP 请求
- *   第 2 秒: retry=2 → 再重发
- *   第 3 秒: retry=3 → ≥3，超时！释放 pending_queue，表项变 FREE
- *
- *   如果中途收到回复，arp_input 会把 retry_count 清零，再也不会走到 ≥3 的分支。
- */
+// ARP 定时器处理函数：检查 PENDING 表项，重发请求或超时清理
 void arp_tick(void)
 {
     int i;
@@ -475,28 +365,7 @@ void arp_tick(void)
     }
 }
 
-/* ==========================================================================
-   arp_query — 查询 IP 对应的 MAC（供 IP 层发送时调用）
-   ========================================================================== */
-/**
- * IP 层要发包给某个 IP 时先调这个。三条路径：
- *   已解析 → 直接返回 MAC（返回 0）
- *   正在等 → 挂起当前包（返回 -1）
- *   没见过 → 新建 PENDING 表项 + 广播请求 + 挂包（返回 -1）
- *
- * 例（IP 层发 UDP 包给 10.0.0.100）:
- *   uint8_t dst_mac[6];
- *   int ret = arp_query(&eth0, dest_ip, dst_mac, mbuf_packet);
- *
- *   if (ret == 0) {
- *       // dst_mac 已填好，直接封装以太网帧头发送
- *       eth_header_add(mbuf_packet, dst_mac, eth0.hwaddr, ETHERTYPE_IPV4);
- *       eth0.send(&eth0, mbuf_packet);
- *   } else {
- *       // ret == -1: 包被 ARP 模块接管了，解析完成后自动发出
- *       // IP 层什么都不用做
- *   }
- */
+// 查询 IPv4 地址对应的 MAC 地址（供 IP 层发送时调用）
 int arp_query(struct netif *ni, uint32_t ip_addr, uint8_t *mac_out,
               struct mbuf *m)
 {
@@ -511,13 +380,11 @@ int arp_query(struct netif *ni, uint32_t ip_addr, uint8_t *mac_out,
             if (arp_table[i].state == ARP_STATE_RESOLVED ||
                 arp_table[i].state == ARP_STATE_STATIC) {
                 /* 已解析，直接返回 MAC */
-
                 memcpy(mac_out, arp_table[i].mac_addr, 6);
                 return 0;
             }
             if (arp_table[i].state == ARP_STATE_PENDING) {
                 /* 正在解析中，只挂包，不重复广播 */
-
                 if (m != NULL && arp_table[i].pending_count < ARP_MAX_PENDING) {
                     arp_pending_enqueue(&arp_table[i], m);
                 } else if (m != NULL) {

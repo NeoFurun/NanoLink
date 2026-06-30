@@ -1,20 +1,8 @@
-/**
- * @file    socket.h
- * @brief   Socket 抽象层公开接口
- *
- * 提供类 BSD socket 的统一编程接口，
- * 通过传输协议操作表屏蔽 TCP/UDP 差异。
- */
-
 #ifndef SOCKET_H
 #define SOCKET_H
 
 #include <stdint.h>
 #include "mbuf.h"
-
-/* -------------------------------------------------------------------------- */
-/*  预定义常量                                                                */
-/* -------------------------------------------------------------------------- */
 
 /* 地址族 */
 #define AF_INET 2 /**< IPv4 地址族 */
@@ -35,9 +23,6 @@
 #define SHUT_WR 1   /**< 关闭写 */
 #define SHUT_RDWR 2 /**< 关闭读写 */
 
-/* -------------------------------------------------------------------------- */
-/*  类型定义                                                                  */
-/* -------------------------------------------------------------------------- */
 
 /** IPv4 地址结构（兼容 BSD sockaddr_in） */
 struct sockaddr_in
@@ -133,33 +118,13 @@ struct socket
 #define SOCK_STATE_CONNECTED 5  /**< 已连接 */
 #define SOCK_STATE_CLOSED 6     /**< 已关闭 */
 
-/* -------------------------------------------------------------------------- */
-/*  公开函数接口（应用层 API）                                                */
-/* -------------------------------------------------------------------------- */
-
-/* ---------- 创建与关闭 ---------- */
-
-/**
- * @brief 创建一个 socket。
- * @param type  SOCK_STREAM 或 SOCK_DGRAM。
- * @return socket 指针（句柄），失败返回 NULL。
- */
+//创建一个socket
 struct socket *socket_create(int type);
 
-/**
- * @brief 关闭 socket，释放资源。
- * @param sock socket 指针。
- */
+//关闭socket
 void socket_close(struct socket *sock);
 
-/* ---------- 地址操作 ---------- */
-
-/**
- * @brief 绑定到本地地址和端口。
- * @param sock    socket 指针。
- * @param addr    本地地址结构体指针。
- * @return 0 成功，-1 失败。
- */
+//绑定到本地地址和端口。
 int socket_bind(struct socket *sock, const struct sockaddr_in *addr);
 
 /**
@@ -170,61 +135,25 @@ int socket_bind(struct socket *sock, const struct sockaddr_in *addr);
  */
 int socket_connect(struct socket *sock, const struct sockaddr_in *addr);
 
-/* ---------- TCP 专用 ---------- */
-
-/**
- * @brief 开始监听（仅 SOCK_STREAM）。
- * @param sock     socket 指针。
- * @param backlog  未 accept 队列最大长度。
- * @return 0 成功，-1 失败。
- */
+//监听
 int socket_listen(struct socket *sock, uint8_t backlog);
 
-/**
- * @brief 接受一个新连接（仅 SOCK_STREAM 监听 socket）。
- * @param listen_sock  监听 socket。
- * @return 新 socket 指针，若无新连接返回 NULL。
- */
+//接受连接（仅 TCP 支持）。
 struct socket *socket_accept(struct socket *listen_sock);
 
-/* ---------- 数据收发 ---------- */
-
-/**
- * @brief 发送数据。
- * @param sock  socket 指针。
- * @param data  应用数据缓冲区指针。
- * @param len   数据长度。
- * @param addr  目标地址（SOCK_DGRAM 时使用，SOCK_STREAM 可填 NULL）。
- * @return 实际发送字节数，-1 失败。
- */
+//发送数据
 int socket_send(struct socket *sock, const void *data, uint16_t len,
                 const struct sockaddr_in *addr);
 
-/**
- * @brief 接收数据（从内部 recv_queue 拷贝）。
- * @param sock  socket 指针。
- * @param buf   接收缓冲区指针。
- * @param len   缓冲区大小。
- * @param addr  输出源地址（可为 NULL）。
- * @return 实际接收字节数，0 表示连接关闭，-1 失败。
- */
+//接受数据
 int socket_recv(struct socket *sock, void *buf, uint16_t len,
                 struct sockaddr_in *addr);
 
-/* ---------- 关闭方式 ---------- */
 
-/**
- * @brief 关闭 socket 的读端/写端/全部。
- * @param sock  socket 指针。
- * @param how   SHUT_RD / SHUT_WR / SHUT_RDWR。
- */
+//关闭 socket 的读端/写端/全部
 void socket_shutdown(struct socket *sock, int how);
 
-/* ---------- 全局 ---------- */
-
-/**
- * @brief 初始化 Socket 层。
- */
+//初始化socket
 void socket_init(void);
 
 #endif /* SOCKET_H */

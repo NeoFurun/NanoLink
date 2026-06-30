@@ -1,21 +1,3 @@
-/**
- * @file    timer.c
- * @brief   定时器服务模块实现
- *
- * 提供单次和周期定时器，供 TCP 重传、ARP 老化、IP 分片重组超时等模块使用。
- * 外部周期性调用 timer_tick() 驱动，不依赖特定时钟源——谁调它、调多快，
- * 由用户决定（主循环 10ms 一次、硬件定时中断 1ms 一次都可以）。
- *
- * 架构：静态池 + 双链表
- *   free_list   — 空闲定时器，初始化时 32 个全串在这
- *   active_list — 正在倒计时的定时器，timer_tick 遍历的就是它
- *
- *   定时器在两条链表之间流转：
- *   free_list → [timer_create] → 句柄 → [timer_start] → active_list
- *   active_list → [timer_tick 到期(ONCE)] → free_list
- *   active_list → [timer_stop] → 游离 → [timer_delete] → free_list
- */
-
 #include "../include/timer.h"
 #include <stddef.h>
 

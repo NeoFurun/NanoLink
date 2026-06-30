@@ -1,52 +1,20 @@
-/**
- * @file    route.c
- * @brief   路由表模块实现
- *
- * 最长前缀匹配（Longest Prefix Match）找出口接口和下一跳。
- *
- * 例:
- *   route_add(10.0.0.0, 255.255.255.0, 0, &tap0);      // 直连 10.0.0.0/24
- *   route_set_default(10.0.0.1, &tap0);                  // 默认网关
- *
- *   route_lookup(10.0.0.50)  → tap0, next_hop=10.0.0.50  (直连)
- *   route_lookup(8.8.8.8)    → tap0, next_hop=10.0.0.1   (走网关)
- */
-
 #include "../include/route.h"
 #include <string.h>
 #include <stdio.h>
 
 static struct route_entry route_table[ROUTE_MAX_ENTRIES];
 
-/* ==========================================================================
-   route_init — 初始化路由表
-   ========================================================================== */
-/**
- * 例:
- *   route_init();
- *   // route_table[32] 全清零
- */
 void route_init(void)
 {
     memset(route_table, 0, sizeof(route_table));
 }
 
-/* ==========================================================================
-   route_add — 添加路由条目
-   ========================================================================== */
-/**
- * 例（添加直连路由和网关路由）:
- *   route_add(0x0A000000, 0xFFFFFF00, 0, &tap0);
- *     dest=10.0.0.0, netmask=255.255.255.0, gateway=0(直连), flags=UP
- *
- *   route_add(0x0A000100, 0xFFFFFFFF, 0x0A000001, &tap0);
- *     dest=10.0.1.0, netmask=255.255.255.255, gateway=10.0.0.1, flags=UP|GATEWAY|HOST
- */
+
 int route_add(uint32_t dest, uint32_t netmask, uint32_t gateway,
               struct netif *ni)
 {
     int i;
-
+    
     if (ni == NULL) return -1;
 
     for (i = 0; i < ROUTE_MAX_ENTRIES; i++) {
@@ -69,14 +37,7 @@ int route_add(uint32_t dest, uint32_t netmask, uint32_t gateway,
     return -1; /* 表满 */
 }
 
-/* ==========================================================================
-   route_remove — 删除路由条目
-   ========================================================================== */
-/**
- * 例:
- *   route_remove(0x0A000000, 0xFFFFFF00);
- *   // 10.0.0.0/24 条目清零
- */
+
 void route_remove(uint32_t dest, uint32_t netmask)
 {
     int i;
@@ -91,23 +52,7 @@ void route_remove(uint32_t dest, uint32_t netmask)
     }
 }
 
-/* ==========================================================================
-   route_lookup — 最长前缀匹配查路由
-   ========================================================================== */
-/**
- * 遍历路由表，找 (dst & netmask) == dest 且 netmask 最长的那个。
- *
- * 例（路由表有两条: 10.0.0.0/24 和 0.0.0.0/0）:
- *   route_lookup(10.0.0.50, &ni, &next):
- *     10.0.0.0/24 → (50 & 0xFFFFFF00)=10.0.0.0 ✓  前缀24 → 最佳!
- *     0.0.0.0/0   → (50 & 0)=0 ✓  前缀0
- *     → ni=tap0, next=10.0.0.50 (直连)
- *
- *   route_lookup(8.8.8.8, &ni, &next):
- *     10.0.0.0/24 → (8.8.8.8 & 0xFFFFFF00) ≠ 10.0.0.0 ✗
- *     0.0.0.0/0   → ✓  前缀0
- *     → ni=tap0, next=10.0.0.1 (网关)
- */
+
 int route_lookup(uint32_t dst_addr, struct netif **ni_out, uint32_t *next_hop)
 {
     int i;
@@ -146,23 +91,11 @@ int route_lookup(uint32_t dst_addr, struct netif **ni_out, uint32_t *next_hop)
     return 0;
 }
 
-/* ==========================================================================
-   route_set_default — 设置默认路由
-   ========================================================================== */
-/**
- * 例:
- *   route_set_default(0x0A000001, &tap0);
- *   // 添加 0.0.0.0/0 → gateway 10.0.0.1 的路由
- *   // 所有找不到具体路由的包都走这条
- */
 int route_set_default(uint32_t gateway, struct netif *ni)
 {
     return route_add(0, 0, gateway, ni);
 }
 
-/* ==========================================================================
-   route_dump — 打印路由表（调试用）
-   ========================================================================== */
 void route_dump(void)
 {
     int i;

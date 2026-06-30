@@ -1,21 +1,9 @@
-/**
- * @file    ip.h
- * @brief   IPv4 网络层模块公开接口
- *
- * 提供 IPv4 数据包的收发、分片重组、校验以及向上层协议分发。
- * 通过 ll_dispatch 接收，通过 netif 发送，传输层协议通过注册回调接收。
- */
-
 #ifndef IP_H
 #define IP_H
 
 #include <stdint.h>
 #include "mbuf.h"
 #include "netif.h"
-
-/* -------------------------------------------------------------------------- */
-/*  预定义常量                                                                */
-/* -------------------------------------------------------------------------- */
 
 /* IPv4 协议号（常见） */
 #define IP_PROTO_ICMP 1 /**< ICMP */
@@ -38,10 +26,6 @@
 /* 上层协议分发器最大注册数 */
 #define IP_PROTO_MAX 8
 
-/* -------------------------------------------------------------------------- */
-/*  类型定义                                                                  */
-/* -------------------------------------------------------------------------- */
-
 /** IPv4 头部结构体 */
 struct ip_header
 {
@@ -58,11 +42,9 @@ struct ip_header
     /* 选项字段可选，通常不处理 */
 } __attribute__((packed));
 
-/** IP 层上层协议处理回调类型 */
 typedef int (*ip_proto_handler_fn)(struct netif *ni, struct mbuf *m,
                                    uint32_t src_ip, uint32_t dst_ip);
-
-/** 分片重装条目（内部使用，不对外暴露细节） */
+// 分片重组条目结构体
 struct ip_frag_entry
 {
     uint32_t src_addr;
@@ -75,85 +57,31 @@ struct ip_frag_entry
     uint8_t active;
 };
 
-/* -------------------------------------------------------------------------- */
-/*  公开函数接口                                                              */
-/* -------------------------------------------------------------------------- */
-
-/* ---------- 初始化 ---------- */
-
-/**
- * @brief 初始化 IP 模块。
- */
+//初始化
 void ip_init(void);
 
-/* ---------- 发送 ---------- */
-
-/**
- * @brief 发送一个 IPv4 数据包（供传输层调用）。
- *        内部会查找路由、调用 ARP、分片（如需要）、通过 netif 发出。
- * @param dst_addr  目标 IPv4 地址（网络字节序）。
- * @param proto     上层协议号（IP_PROTO_TCP 等）。
- * @param m         包含上层数据的 mbuf，IP 头部由本函数添加。
- * @return 0 成功，-1 失败。
- */
+//发送
 int ip_output(uint32_t dst_addr, uint8_t proto, struct mbuf *m);
 
-/* ---------- 接收 ---------- */
-
-/**
- * @brief IPv4 输入处理函数，注册到 ll_dispatch（ETHERTYPE_IPV4）。
- *        处理完成后，若目标为本机，根据协议号分发给注册的上层处理函数。
- * @param ni 收到包的接口。
- * @param m  包含 IP 包的 mbuf（已跳过以太网头）。
- * @return 0 成功，非 0 错误。
- */
+//接收
 int ip_input(struct netif *ni, struct mbuf *m);
 
-/* ---------- 上层协议注册 ---------- */
-
-/**
- * @brief 注册上层协议处理函数（TCP、UDP、ICMP 等模块调用）。
- * @param proto   协议号（IP_PROTO_TCP 等）。
- * @param handler 处理函数指针。
- * @return 0 成功，-1 协议号已被占用或表满。
- */
+//注册上层协议处理函数
 int ip_register_proto(uint8_t proto, ip_proto_handler_fn handler);
 
-/**
- * @brief 注销上层协议处理函数。
- * @param proto 协议号。
- */
+//注销上层协议处理函数
 void ip_unregister_proto(uint8_t proto);
 
-/* ---------- 地址与状态 ---------- */
-
-/**
- * @brief 为指定接口设置 IPv4 地址。
- * @param ni      网络接口。
- * @param ip_addr IPv4 地址（网络字节序）。
- * @param netmask 子网掩码（网络字节序）。
- */
+//设置IP地址和子网掩码
 void ip_set_address(struct netif *ni, uint32_t ip_addr, uint32_t netmask);
 
-/**
- * @brief 获取接口的 IPv4 地址。
- * @param ni 网络接口。
- * @return IPv4 地址（网络字节序），未配置返回 0。
- */
+//获取IP地址
 uint32_t ip_get_address(struct netif *ni);
 
-/**
- * @brief 检查目标 IP 是否为本机地址。
- * @param ip_addr IPv4 地址（网络字节序）。
- * @return 1 是本机，0 不是。
- */
+//判断IP地址是否为本地网卡地址
 int ip_is_local(uint32_t ip_addr);
 
-/* ---------- 分片控制 ---------- */
-
-/**
- * @brief 定期清理超时的分片重装条目，由定时器或主循环调用。
- */
+// IP分片重组定时器处理函数
 void ip_frag_tick(void);
 
-#endif /* IP_H */
+#endif

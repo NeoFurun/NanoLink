@@ -1,11 +1,3 @@
-/**
- * @file    timer.h
- * @brief   定时器服务模块公开接口
- *
- * 提供单次和周期定时器，供 TCP、ARP、IP 分片等模块使用。
- * 由外部周期性调用 timer_tick() 驱动，不依赖特定时钟源。
- */
-
 #ifndef TIMER_H
 #define TIMER_H
 
@@ -43,71 +35,35 @@ struct timer
     struct timer *next;         /**< 链表指针 */
 };
 
-/* -------------------------------------------------------------------------- */
-/*  公开函数接口                                                              */
-/* -------------------------------------------------------------------------- */
 
-/**
- * @brief 初始化定时器模块。
- */
+//初始化定时器模块。
 void timer_init(void);
 
-/**
- * @brief 创建一个定时器。
- * @param interval 定时周期（毫秒）。
- * @param type     TIMER_TYPE_ONCE 或 TIMER_TYPE_PERIODIC。
- * @param callback 到期回调函数。
- * @param arg      回调函数参数。
- * @return 定时器句柄，失败返回 NULL。
- */
+//创建一个定时器
 timer_handle_t timer_create(uint32_t interval, uint8_t type,
                             timer_callback_fn callback, void *arg);
 
-/**
- * @brief 启动（或重新启动）定时器。
- * @param handle 定时器句柄。
- */
+//启动（或重新启动）定时器
 void timer_start(timer_handle_t handle);
 
-/**
- * @brief 停止定时器。
- * @param handle 定时器句柄。
- */
+//停止定时器（不删除）
 void timer_stop(timer_handle_t handle);
 
-/**
- * @brief 删除定时器，释放资源。
- * @param handle 定时器句柄。
- */
+//删除定时器
 void timer_delete(timer_handle_t handle);
 
-/**
- * @brief 检查定时器是否处于激活状态。
- * @param handle 定时器句柄。
- * @return 1 激活中，0 未激活。
- */
+//检查定时器是否激活
 int timer_is_active(timer_handle_t handle);
 
-/**
- * @brief 修改定时器周期（下次到期后生效）。
- * @param handle   定时器句柄。
- * @param interval 新的定时周期（毫秒）。
- */
+//修改定时器周期（下次到期后生效）。
 void timer_set_interval(timer_handle_t handle, uint32_t interval);
 
-/**
- * @brief 获取定时器剩余时间。
- * @param handle 定时器句柄。
- * @return 剩余时间（毫秒），未激活返回 0。
- */
+//获取定时器剩余时间。
 uint32_t timer_get_remaining(timer_handle_t handle);
 
-/**
- * @brief 定时器驱动函数：由外部周期性调用（如每 1ms 或 10ms）。
- *        内部遍历所有激活定时器，递减计数，到期时调用回调。
- *        调用频率决定了定时精度。
- * @param elapsed_ms 自上次调用以来经过的时间（毫秒）。
- */
+//定时器驱动函数：由外部周期性调用（如每 1ms 或 10ms）。
+//内部遍历所有激活定时器，递减计数，到期时调用回调。
+//调用频率决定了定时精度。
 void timer_tick(uint32_t elapsed_ms);
 
 #endif /* TIMER_H */
